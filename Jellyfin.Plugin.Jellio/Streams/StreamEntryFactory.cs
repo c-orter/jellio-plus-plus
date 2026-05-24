@@ -13,13 +13,14 @@ using Microsoft.AspNetCore.Http;
 namespace Jellyfin.Plugin.Jellio.Streams;
 
 /// <summary>
-/// Builds Stremio stream entries for a Jellyfin MediaSource. Jellyfin's master.m3u8 advertises an SDR H.264 fallback variant on HDR sources, and Stremio's HLS engine can pick that fallback over the HDR primary, leaving the user with the lower-quality transcode instead of direct-play HDR. To prevent that, an HDR source whose codec is in the declared list gets two entries (a "Direct Play" entry pinned to the single-variant main.m3u8, plus an "Auto" entry on master.m3u8), while all other sources get a single master.m3u8 entry.
+/// Builds Stremio stream entries for a Jellyfin MediaSource. Jellyfin's master.m3u8 advertises an SDR H.264 fallback variant on HDR sources, and Stremio's HLS engine can pick that fallback over the HDR primary, leaving the user with the lower-quality transcode instead of direct-play HDR. To prevent that, an HDR source whose codec is in the declared list gets two entries (a "Direct Play" entry pinned to the single-variant main.m3u8, plus an "Adaptive" entry on master.m3u8), while all other sources get a single master.m3u8 entry.
 /// </summary>
 public static class StreamEntryFactory
 {
     private const string MasterEndpoint = "master.m3u8";
     private const string MainEndpoint = "main.m3u8";
-    private const string AutoDescription = "Auto";
+    private const string AdaptivePrefix = "Adaptive";
+    private const string AdaptiveSeparator = " · ";
     private const string SuffixSeparator = " — ";
 
     /*
@@ -42,7 +43,7 @@ public static class StreamEntryFactory
                 request.MediaSource,
                 videoStream!,
                 PickAudioStream(request.MediaSource)) + suffix;
-            var autoDescription = AutoDescription + suffix;
+            var autoDescription = FormatAdaptiveDescription(request);
             return
             [
                 BuildEntry(request, MainEndpoint, directDescription),
@@ -59,11 +60,25 @@ public static class StreamEntryFactory
         {
             return string.Empty;
         }
+        var label = ResolveSourceLabel(request);
+        return label is null ? string.Empty : SuffixSeparator + label;
+    }
 
-        var label = string.IsNullOrEmpty(request.MediaSource.Name)
+    private static string FormatAdaptiveDescription(StreamEntryRequest request)
+    {
+        var label = ResolveSourceLabel(request);
+        return label is null ? AdaptivePrefix : AdaptivePrefix + AdaptiveSeparator + label;
+    }
+
+    private static string? ResolveSourceLabel(StreamEntryRequest request)
+    {
+        if (!string.IsNullOrEmpty(request.MediaSource.Name))
+        {
+            return request.MediaSource.Name;
+        }
+        return request.IsMultiMediaSource
             ? "#" + request.SourceIndex.ToString(CultureInfo.InvariantCulture)
-            : request.MediaSource.Name;
-        return SuffixSeparator + label;
+            : null;
     }
 
     private static MediaStream? PickVideoStream(MediaSourceInfo source) =>

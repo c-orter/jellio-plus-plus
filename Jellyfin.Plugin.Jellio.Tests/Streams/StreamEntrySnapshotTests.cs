@@ -20,15 +20,15 @@ public class StreamEntrySnapshotTests
     private static readonly Guid ItemId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     [Theory]
-    [InlineData("hdr10-hevc-4k", "Direct Play · HEVC HDR10 · 2160p · 1.3 Mbps · AAC stereo")]
-    [InlineData("dv-hevc", "Direct Play · HEVC DV · 1920p · 31.1 Mbps · EAC3 5.1")]
-    public void Build_HdrSnapshot_EmitsDirectAndAutoEntries(string slug, string expectedDirectDescription)
+    [InlineData("hdr10-hevc-4k", "Direct Play · HEVC HDR10 · 2160p · 1.3 Mbps · AAC stereo", "Adaptive · HDR10 HEVC 4K Sample - BlackClipping (2024)")]
+    [InlineData("dv-hevc", "Direct Play · HEVC DV · 1920p · 31.1 Mbps · EAC3 5.1", "Adaptive · DV HEVC Sample - Landing (2024)")]
+    public void Build_HdrSnapshot_EmitsDirectAndAutoEntries(string slug, string expectedDirectDescription, string expectedAutoDescription)
     {
         var entries = StreamEntryFactory.Build(BuildRequest(LoadSnapshot(slug)));
 
         Assert.Equal(2, entries.Count);
         Assert.Equal(expectedDirectDescription, entries[0].Description);
-        Assert.Equal("Auto", entries[1].Description);
+        Assert.Equal(expectedAutoDescription, entries[1].Description);
         Assert.Contains($"/Videos/{ItemId}/main.m3u8?", entries[0].Url, StringComparison.Ordinal);
         Assert.Contains($"/Videos/{ItemId}/master.m3u8?", entries[1].Url, StringComparison.Ordinal);
     }

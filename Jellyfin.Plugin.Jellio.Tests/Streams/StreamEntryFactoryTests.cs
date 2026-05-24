@@ -76,11 +76,19 @@ public class StreamEntryFactoryTests
     }
 
     [Fact]
-    public void Build_HdrSourceWithDeclaredCodec_AutoEntryDescriptionIsAuto()
+    public void Build_HdrSourceSingleMediaSource_DirectEntryOmitsSourceNameSuffix()
     {
         var entries = StreamEntryFactory.Build(HevcHdr10Request());
 
-        Assert.Equal("Auto", entries[1].Description);
+        Assert.DoesNotContain(" — ", entries[0].Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_HdrSourceWithDeclaredCodec_AutoEntryDescriptionIsAdaptiveWithSourceName()
+    {
+        var entries = StreamEntryFactory.Build(HevcHdr10Request());
+
+        Assert.Equal("Adaptive · Dune.HDR10.mkv", entries[1].Description);
     }
 
     [Fact]
@@ -139,7 +147,7 @@ public class StreamEntryFactoryTests
         var entries = StreamEntryFactory.Build(request);
 
         Assert.EndsWith(" — Dune.HDR10.mkv", entries[0].Description, StringComparison.Ordinal);
-        Assert.Equal("Auto — Dune.HDR10.mkv", entries[1].Description);
+        Assert.Equal("Adaptive · Dune.HDR10.mkv", entries[1].Description);
     }
 
     [Fact]
@@ -165,7 +173,17 @@ public class StreamEntryFactoryTests
         var entries = StreamEntryFactory.Build(request);
 
         Assert.EndsWith(" — #2", entries[0].Description, StringComparison.Ordinal);
-        Assert.Equal("Auto — #2", entries[1].Description);
+        Assert.Equal("Adaptive · #2", entries[1].Description);
+    }
+
+    [Fact]
+    public void Build_HdrSourceSingleMediaSource_NullSourceName_AutoIsBareAdaptive()
+    {
+        var request = HevcHdr10RequestBuilder(source => source.Name = null);
+
+        var entries = StreamEntryFactory.Build(request);
+
+        Assert.Equal("Adaptive", entries[1].Description);
     }
 
     [Fact]
