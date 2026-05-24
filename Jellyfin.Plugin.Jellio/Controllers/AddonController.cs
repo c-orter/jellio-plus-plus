@@ -183,6 +183,13 @@ public class AddonController : ControllerBase
                     BaseUrl = baseUrl,
                     AuthToken = authToken,
                 });
+                var videoStream = source.MediaStreams?.FirstOrDefault(stream => stream.Type == MediaStreamType.Video);
+                LogBuffer.AddLog(
+                    $"[Stream] Source \"{source.Name}\": codec={videoStream?.Codec ?? "n/a"}, " +
+                    $"range={videoStream?.VideoRange.ToString() ?? "n/a"}, " +
+                    $"rangeType={videoStream?.VideoRangeType.ToString() ?? "n/a"}, " +
+                    $"entries={entries.Count}",
+                    LogLevel.Info);
                 foreach (var entry in entries)
                 {
                     LogBuffer.AddLog($"[Stream] Generated stream for {dto.Name} ({dto.Id}): {source.Name} - URL: {entry.Url}", LogLevel.Info);
