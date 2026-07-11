@@ -80,10 +80,39 @@ public class AddonController : ControllerBase
     {
         if (!string.IsNullOrWhiteSpace(overrideBaseUrl))
         {
-            return overrideBaseUrl!.TrimEnd('/');
+            var resolved = overrideBaseUrl!.TrimEnd('/');
+            WarnIfInsecure(resolved, source: "PublicBaseUrl");
+            return resolved;
         }
 
-        return $"{Request.Scheme}://{Request.Host}{Request.PathBase}";
+        var scheme = UrlSchemeResolver.Resolve(Request);
+        var baseUrl = $"{scheme}://{Request.Host}{Request.PathBase}";
+        WarnIfInsecure(baseUrl, source: "inferred from request");
+        return baseUrl;
+    }
+
+    private void WarnIfInsecure(string url, string source)
+    {
+        if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        // Allow cleartext only when the host is loopback / private (local testing).
+        var hostStart = "http://".Length;
+        var hostEnd = url.IndexOfAny(new[] { '/', '?', '#' }, hostStart);
+        var host = hostEnd > hostStart ? url[hostStart..hostEnd] : url[hostStart..];
+        if (UrlSchemeResolver.IsLocalHost(host))
+        {
+            return;
+        }
+
+        LogBuffer.AddLog(
+            $"[URL] Generated an http:// URL ({source} -> {url}). Stremio and ExoPlayer-based "
+            + "clients (Nuvio, etc.) require https://. If you're behind a reverse proxy (Cloudflare "
+            + "Tunnel, nginx, Caddy, ...), make sure it sets X-Forwarded-Proto: https, or set "
+            + "PublicBaseUrl explicitly to an https:// URL in the plugin settings.",
+            LogLevel.Warning);
     }
 
     private static MetaDto MapToMeta(
