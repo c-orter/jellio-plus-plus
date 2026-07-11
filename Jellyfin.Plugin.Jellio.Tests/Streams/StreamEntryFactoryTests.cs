@@ -243,9 +243,76 @@ public class StreamEntryFactoryTests
             var query = entry.Url[entry.Url.IndexOf('?', StringComparison.Ordinal)..];
             Assert.Contains("mediaSourceId=source-hdr", query, StringComparison.Ordinal);
             Assert.Contains($"api_key={AuthToken}", query, StringComparison.Ordinal);
-            Assert.Contains("videoCodec=h264,hevc,av1", query, StringComparison.Ordinal);
-            Assert.Contains("audioCodec=aac,mp3,ac3,eac3,flac,opus", query, StringComparison.Ordinal);
+            Assert.Contains("deviceId=", query, StringComparison.Ordinal);
+            Assert.Contains("playSessionId=", query, StringComparison.Ordinal);
+
+            // Each declared codec must be emitted as its own repeated query parameter so Jellyfin
+            // binds them into string[] on StreamingRequestDto.SupportedVideoCodecs /
+            // SupportedAudioCodecs. A single comma-joined value would be treated as one literal
+            // codec name downstream and force a failed transcode attempt that returns 404 to
+            // ExoPlayer-based clients (e.g. Nuvio on Android TV).
+            foreach (var codec in new[] { "h264", "hevc", "av1" })
+            {
+                Assert.Contains($"videoCodec={codec}", query, StringComparison.Ordinal);
+            }
+
+            Assert.DoesNotContain("videoCodec=h264%2Chevc%2Cav1", query, StringComparison.Ordinal);
+
+            foreach (var codec in new[] { "aac", "mp3", "ac3", "eac3", "flac", "opus" })
+            {
+                Assert.Contains($"audioCodec={codec}", query, StringComparison.Ordinal);
+            }
+
+            Assert.DoesNotContain("audioCodec=aac%2Cmp3%2Cac3%2Ceac3%2Cflac%2Copus", query, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void Build_QueryString_DeviceIdIsStableForSameAuthToken()
+    {
+        var first = StreamEntryFactory.Build(HevcHdr10Request()).First().Url;
+        var second = StreamEntryFactory.Build(HevcHdr10Request()).First().Url;
+
+        var firstDevice = ExtractQueryValue(first, "deviceId");
+        var secondDevice = ExtractQueryValue(second, "deviceId");
+
+        Assert.False(string.IsNullOrEmpty(firstDevice));
+        Assert.Equal(firstDevice, secondDevice);
+    }
+
+    [Fact]
+    public void Build_QueryString_PlaySessionIdIsUniquePerStream()
+    {
+        var first = StreamEntryFactory.Build(HevcHdr10Request()).First().Url;
+        var second = StreamEntryFactory.Build(HevcHdr10Request()).First().Url;
+
+        var firstSession = ExtractQueryValue(first, "playSessionId");
+        var secondSession = ExtractQueryValue(second, "playSessionId");
+
+        Assert.False(string.IsNullOrEmpty(firstSession));
+        Assert.False(string.IsNullOrEmpty(secondSession));
+        Assert.NotEqual(firstSession, secondSession);
+    }
+
+    private static string ExtractQueryValue(string url, string key)
+    {
+        var query = url[url.IndexOf('?', StringComparison.Ordinal)..];
+        foreach (var part in query.TrimStart('?').Split('&'))
+        {
+            var eq = part.IndexOf('=', StringComparison.Ordinal);
+            if (eq <= 0)
+            {
+                continue;
+            }
+
+            var partKey = Uri.UnescapeDataString(part[..eq]);
+            if (string.Equals(partKey, key, StringComparison.Ordinal))
+            {
+                return Uri.UnescapeDataString(part[(eq + 1)..]);
+            }
+        }
+
+        return string.Empty;
     }
 
     [Fact]

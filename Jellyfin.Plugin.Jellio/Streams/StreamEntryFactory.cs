@@ -3,12 +3,15 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.Jellio.Helpers;
 using Jellyfin.Plugin.Jellio.Models;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.WebUtilities;
 
 namespace Jellyfin.Plugin.Jellio.Streams;
 
@@ -26,6 +29,11 @@ public static class StreamEntryFactory
     /*
      * Stremio addons can't probe client codec support, so the lists below are hardcoded to what Stremio's players can decode. Jellyfin's HLS endpoint compares them against the source's codecs to decide between direct-stream and transcode; without them, Jellyfin falls back to "m3u8" as the audio codec name and produces invalid FFmpeg commands.
      * See: https://github.com/jellyfin/jellyfin/issues/12926
+     *
+     * Each codec must be sent as its own repeated query parameter (e.g. videoCodec=h264&videoCodec=hevc)
+     * so Jellyfin binds them into a string[] on StreamingRequestDto.SupportedVideoCodecs. A single
+     * comma-joined value is accepted by the parameter regex but is treated as one literal codec name
+     * later in the pipeline, which can force a doomed transcode attempt and a 404 to the player.
      */
     private static readonly IReadOnlyList<string> DeclaredVideoCodecs =
         ["h264", "hevc", "av1"];
@@ -122,13 +130,71 @@ public static class StreamEntryFactory
 
     private static string BuildUrl(StreamEntryRequest request, string endpoint)
     {
-        var query = QueryString.Create(new Dictionary<string, string?>
+        // Jellyfin's DynamicHlsController tracks active encodings by deviceId+playSessionId and
+        // returns 404 if the request can't be associated with an existing device/session. Stremio
+        // doesn't expose a client device id, so we derive a stable one from the auth token and
+        // generate a fresh playSessionId per stream so ExoPlayer-based clients (Nuvio Android TV,
+        // etc.) receive a usable HLS manifest instead of an unrecoverable 404.
+        var deviceId = DeriveDeviceId(request.AuthToken);
+        var playSessionId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+
+        var parameters = new List<KeyValuePair<string, string?>>
         {
-            ["mediaSourceId"] = request.MediaSource.Id,
-            ["api_key"] = request.AuthToken,
-            ["videoCodec"] = string.Join(',', DeclaredVideoCodecs),
-            ["audioCodec"] = string.Join(',', DeclaredAudioCodecs),
-        });
+            new("mediaSourceId", request.MediaSource.Id),
+            new("api_key", request.AuthToken),
+            new("deviceId", deviceId),
+            new("playSessionId", playSessionId),
+        };
+        foreach (var codec in DeclaredVideoCodecs)
+        {
+            parameters.Add(new KeyValuePair<string, string?>("videoCodec", codec));
+        }
+
+        foreach (var codec in DeclaredAudioCodecs)
+        {
+            parameters.Add(new KeyValuePair<string, string?>("audioCodec", codec));
+        }
+
+        var query = QueryString.Empty;
+        var builder = new StringBuilder();
+        foreach (var (key, value) in parameters)
+        {
+            if (value is null)
+            {
+                continue;
+            }
+
+            if (builder.Length > 0)
+            {
+                builder.Append('&');
+            }
+
+            builder.Append(Uri.EscapeDataString(key));
+            builder.Append('=');
+            builder.Append(Uri.EscapeDataString(value));
+        }
+
+        if (builder.Length > 0)
+        {
+            query = new QueryString("?" + builder.ToString());
+        }
+
         return $"{request.BaseUrl}/Videos/{request.ItemId}/{endpoint}{query}";
+    }
+
+    private static string DeriveDeviceId(string authToken)
+    {
+        // Stremio doesn't pass a client device id, so produce a stable hex digest derived from the
+        // auth token. This gives the HLS endpoint a real deviceId for session tracking while
+        // staying deterministic for the same token (so reconnects resume cleanly).
+        var inputBytes = Encoding.UTF8.GetBytes(authToken ?? string.Empty);
+        var hash = SHA1.HashData(inputBytes);
+        var sb = new StringBuilder(hash.Length * 2);
+        foreach (var b in hash)
+        {
+            sb.Append(b.ToString("x2", CultureInfo.InvariantCulture));
+        }
+
+        return sb.ToString();
     }
 }
