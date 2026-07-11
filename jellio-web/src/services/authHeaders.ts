@@ -1,4 +1,4 @@
-const CLIENT_VERSION = '1.5.0';
+const CLIENT_VERSION = '1.6.0';
 
 export const buildAuthHeaders = ({
   token,
