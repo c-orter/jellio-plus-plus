@@ -143,7 +143,7 @@ public class AddonController : ControllerBase
 
         var meta = new MetaDto
         {
-            Id = dto.ProviderIds.TryGetValue("Imdb", out var idVal) ? idVal : $"jelliopp:{dto.Id}",
+            Id = $"jelliopp:{dto.Id}",
             Type = stremioType.ToString().ToLower(CultureInfo.InvariantCulture),
             Name = dto.Name,
             Poster = $"{baseUrl}/Items/{dto.Id}/Images/Primary",
